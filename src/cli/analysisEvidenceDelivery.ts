@@ -32,6 +32,7 @@ import {
 import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
 import type { ZodSafeParseResult } from "zod";
 import { bindCliEvidenceCallerPath } from "./cliEvidenceCallerPath.js";
+import type { AnalysisResultWithSources } from "../application/investigation/recordEvidenceSources.js";
 
 export const analysisEvidenceDeliveryOptions = {
   detail: z
@@ -203,7 +204,7 @@ const withUndeliveredSourceClosure = (
 
 /** Publish already finalized CLI analysis without opening a second provider/session. */
 export const publishCliAnalysisEvidence = async (
-  result: Result<Evidence, JsonValue>,
+  result: AnalysisResultWithSources<Evidence, JsonValue>,
   input: CliEvidenceDelivery,
 ): Promise<JsonValue> => {
   const { operation, signal, detail, evidenceOutput } = input;
@@ -243,9 +244,11 @@ export const publishCliAnalysisEvidence = async (
   const published = await publishEvidenceDelivery({
     bundle: createEvidenceBundle([
       ...new Map(
-        [...(input.sourceEvidence ?? []), ...inspectionSources.value].map(
-          (record) => [record.evidence_id, record],
-        ),
+        [
+          ...(input.sourceEvidence ?? []),
+          ...(result.sourceEvidence ?? []),
+          ...inspectionSources.value,
+        ].map((record) => [record.evidence_id, record]),
       ).values(),
     ]),
     complete,
