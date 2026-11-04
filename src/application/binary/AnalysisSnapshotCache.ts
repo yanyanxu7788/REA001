@@ -105,23 +105,26 @@ const DOCUMENTLESS_SOURCE_EVIDENCE_OPERATIONS: ReadonlySet<AnalysisOperation> =
 
 /**
  * Whether a source observation is safe to retain as Evidence.
- * A missing document selector blocks snapshot replay. Only caller and callee
- * walks stay in the ledger without one.
+ * A missing document selector blocks snapshot replay. A producer can require
+ * its observation as Evidence independently of whether it can be replayed.
  */
 export const isSourceEvidenceRetainable = (
   operation: AnalysisOperation,
   descriptor: CapabilityDescriptor | undefined,
   parameters: Readonly<Record<string, JsonValue>>,
+  options: { readonly requiresSourceEvidence?: boolean } = {},
 ): descriptor is CapabilityDescriptor =>
   !STATEFUL_OPERATIONS.has(operation) &&
   !RESOURCE_SCOPED_OPERATIONS.has(operation) &&
   (!DOCUMENT_SCOPED_OPERATIONS.has(operation) ||
     typeof parameters.document === "string" ||
-    DOCUMENTLESS_SOURCE_EVIDENCE_OPERATIONS.has(operation)) &&
+    DOCUMENTLESS_SOURCE_EVIDENCE_OPERATIONS.has(operation) ||
+    options.requiresSourceEvidence === true) &&
   (!CURSOR_DEFAULT_OPERATIONS.has(operation) ||
     typeof parameters.address === "string") &&
   descriptor?.effects.mutatesArtifact === false &&
-  (descriptor.cachePolicy === "snapshot" ||
+  (options.requiresSourceEvidence === true ||
+    descriptor.cachePolicy === "snapshot" ||
     descriptor.effects.mayWriteFilesystem === false) &&
   descriptor.effects.changesPermissions === false;
 
@@ -544,9 +547,14 @@ export class AnalysisSnapshotCache {
   }): void {
     const { target, profile, operation, parameters, execution } = input;
     this.select(target, profile);
-    // The snapshot format does not carry reference truncation; a replay would
-    // present a capped read as complete, so it is not recorded.
-    if (execution.referencesTruncated === true) return;
+    // The snapshot format does not carry reference truncation or classifications.
+    // Replaying either would lose the source facts used by a composed trace.
+    if (
+      execution.referencesTruncated === true ||
+      execution.referenceClassifications !== undefined ||
+      execution.referenceCoverageGaps !== undefined
+    )
+      return;
     // Provider snapshot entries do not carry execution source records. Replay
     // must not discard the source closure that supplies the parent's Evidence links.
     if ((execution.sourceEvidence?.length ?? 0) > 0) return;
