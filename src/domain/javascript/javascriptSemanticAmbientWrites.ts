@@ -1,3 +1,4 @@
+import { javaScriptTopLevelThisMayBeGlobal } from "./javascriptSourceParser.js";
 import * as t from "@babel/types";
 
 import {
@@ -38,10 +39,10 @@ import {
 } from "./javascriptSemanticGlobalReference.js";
 import { readSemanticRequireLoader } from "./javascriptSemanticRequireOriginSlot.js";
 import {
-  semanticCopiedReferencePath,
   semanticReferenceIterationUnknown,
   semanticReferenceSourcesInactive,
 } from "./javascriptSemanticReferenceSources.js";
+import { semanticCopiedReferencePath } from "./javascriptSemanticCopiedReferencePaths.js";
 
 export {
   isUnmodifiedGlobalReference,
@@ -319,6 +320,18 @@ export const createAmbientPathResolver = (
           resolvedIdentity = true;
           continue;
         }
+        if (
+          t.isThisExpression(root) &&
+          javaScriptTopLevelThisMayBeGlobal(
+            root,
+            state.program,
+            state.parentsByNode,
+          )
+        ) {
+          retain(["global", ...(suffix ?? [])]);
+          resolvedIdentity = true;
+          continue;
+        }
         if (t.isIdentifier(root)) {
           // The wrapper module object is distinct from globalThis.module. Keep
           // its identity through the same alias/projection owner used for writes.
@@ -345,7 +358,7 @@ export const createAmbientPathResolver = (
           const readAt = current.readsAtSelf ? root : capture;
           const atRead =
             possibleWrites && readAt !== undefined
-              ? semanticBindingAtRead(binding, readAt, state.parentsByNode)
+              ? semanticBindingAtRead(binding, readAt, state)
               : undefined;
           const selected = atRead?.binding ?? binding;
           if (possibleWrites && atRead?.hasDefiniteInitializer === false)

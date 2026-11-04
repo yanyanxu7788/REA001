@@ -1,3 +1,4 @@
+import type { SemanticPropertyReadSource } from "./javascriptSemanticIterationSources.js";
 import * as t from "@babel/types";
 import {
   semanticStaticPropertyKey,
@@ -119,17 +120,24 @@ export interface JavaScriptSemanticScopeState {
 /** One source owns sites and the minimal scope tree reaching them; O(AST) storage. */
 export interface JavaScriptOpaqueScopeEffects {
   /** Cheap source evidence collected with declarations, before alias queries. */
-  mayReferenceGlobalEval: boolean;
+  mayReferenceGlobalCode: boolean;
   readonly sites: WeakSet<t.Node>;
   readonly sloppySites: WeakSet<t.Node>;
   readonly byScope: Map<string, t.CallExpression[]>;
   readonly children: Map<string, Set<string>>;
-  readonly globalSites: (t.CallExpression | t.OptionalCallExpression)[];
+  readonly globalSites: (
+    | t.CallExpression
+    | t.OptionalCallExpression
+    | t.NewExpression
+    | t.TaggedTemplateExpression
+  )[];
 }
 
 /** Shared state for semantic collection and evaluation. */
 export interface JavaScriptSemanticAnalysisState {
   arrayIterationUnknown: boolean;
+  /** Receiver isolation requires the completed member-effect inventory. */
+  memberMutationFactsComplete: boolean;
   readonly program: t.Program;
   readonly opaqueEffects: JavaScriptOpaqueScopeEffects;
   /** Effective loader for static imports in this source artifact. */
@@ -154,6 +162,14 @@ export interface JavaScriptSemanticAnalysisState {
   prototypeRequireMutationObserved: boolean | undefined;
   /** Source evidence that Object.prototype may add inherited enumerable keys. */
   prototypeEnumerationMayAffect: boolean | undefined;
+  readonly implicitPropertyReads: WeakMap<
+    t.Node,
+    readonly SemanticPropertyReadSource[]
+  >;
+  readonly prototypeMutationSites: {
+    readonly owner: "Object" | "Array" | "String" | "Function";
+    readonly node: t.Node;
+  }[];
   /** Effects on a cached require exports object, independent of local projections. */
   readonly requiredModuleEffects: Map<
     string,

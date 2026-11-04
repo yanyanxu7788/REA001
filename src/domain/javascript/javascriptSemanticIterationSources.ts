@@ -11,7 +11,8 @@ import {
   type JavaScriptSemanticPropertyPath,
 } from "./javascriptSemanticPropertyPaths.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
-import { semanticCopiedReferencePath } from "./javascriptSemanticReferenceSources.js";
+
+import { semanticCopiedReferencePath } from "./javascriptSemanticCopiedReferencePaths.js";
 import type {
   IterationSourceValue,
   SemanticIterationSource,
@@ -332,7 +333,10 @@ const semanticSourceFacts = (
     add(sources, { node: node.argument, projection: [] }, node, {});
   else if (t.isFunction(node))
     for (const parameter of runtimeFunctionParameters(node))
-      visit(context, parameter, undefined);
+      // A caller-supplied value is unknown, not an absent property-read source.
+      // Retain the owning pattern as an unresolved source, including alongside
+      // default-value projections, instead of dropping its property lookups.
+      visit(context, parameter, { node: parameter, projection: [] });
   const facts = { iterations: sources, propertyReads };
   sourceFacts.set(node, { parent, facts });
   return facts;
@@ -344,8 +348,28 @@ export const semanticIterationSources = (
 ): readonly SemanticIterationSource[] =>
   semanticSourceFacts(node, parent).iterations;
 
+/** Pattern reads from an explicitly retained source, including thrown values. */
+export const semanticPatternPropertyReadSources = (
+  pattern: t.Node,
+  source: IterationSourceValue,
+  mutation: t.Node,
+): readonly SemanticPropertyReadSource[] => {
+  const propertyReads: SemanticPropertyReadSource[] = [];
+  visit({ sources: [], propertyReads, mutation }, pattern, source);
+  return propertyReads;
+};
+
 export const semanticPropertyReadSources = (
   node: t.Node,
   parent: t.Node | null,
-): readonly SemanticPropertyReadSource[] =>
-  semanticSourceFacts(node, parent).propertyReads;
+  supplemental?: {
+    readonly implicitPropertyReads: WeakMap<
+      t.Node,
+      readonly SemanticPropertyReadSource[]
+    >;
+  },
+): readonly SemanticPropertyReadSource[] => {
+  const ordinary = semanticSourceFacts(node, parent).propertyReads;
+  const implicit = supplemental?.implicitPropertyReads.get(node);
+  return implicit === undefined ? ordinary : [...ordinary, ...implicit];
+};

@@ -1,5 +1,6 @@
 import { parse, type ParserOptions, type ParserPlugin } from "@babel/parser";
 import * as t from "@babel/types";
+import { javaScriptComputedDefinitionKey } from "./javascriptAstValues.js";
 import {
   hasOnlyInlineTypeExportSpecifiers,
   hasOnlyInlineTypeImportSpecifiers,
@@ -281,4 +282,41 @@ export const parseJavaScriptSource = (
     void cause;
     return null;
   }
+};
+
+/** A script's top-level lexical this may be its ambient global; wrappers and modules isolate it. */
+export const javaScriptTopLevelThisMayBeGlobal = (
+  node: t.ThisExpression,
+  program: t.Program,
+  parents: WeakMap<t.Node, t.Node>,
+): boolean => {
+  if (javaScriptRuntimeContext(program) !== "unknown") return false;
+  let child: t.Node = node;
+  let classDefinitionKey = false;
+  let current: t.Node | undefined = parents.get(node);
+  while (current !== undefined && current !== program) {
+    const computedKey = javaScriptComputedDefinitionKey(current, child);
+    if (computedKey && !t.isObjectMethod(current)) classDefinitionKey = true;
+    if (
+      (t.isClassProperty(current) ||
+        t.isClassPrivateProperty(current) ||
+        t.isClassAccessorProperty(current)) &&
+      current.value === child
+    )
+      return false;
+    if (t.isStaticBlock(current)) return false;
+    if (
+      (t.isFunction(current) &&
+        !t.isArrowFunctionExpression(current) &&
+        !computedKey) ||
+      (t.isClass(current) &&
+        current.superClass !== child &&
+        !classDefinitionKey)
+    )
+      return false;
+    if (t.isClass(current)) classDefinitionKey = false;
+    child = current;
+    current = parents.get(current);
+  }
+  return current === program;
 };
